@@ -76,11 +76,11 @@ We believe that each intermediate step of the extraction process should be saved
 - flat           : The blaze corrected spectrum is stored here.
 - merged         : The merged spectrum is stored here.
 
-PyVesta can save the result spectra in two different ways. The default option is a custom HDF5 format. This has the advantage of being more flexible and adaptable to various characteristics of the spectrographs, such as multiple fibers. The spectra saved in this way can be viewed using the `Plot_HDF5.py` file located in the "Additional scripts" folder.
+PyVesta can save the result spectra in two different ways. The default option is a custom HDF5 format. This has the advantage of being more flexible and adaptable to various characteristics of the spectrographs, such as multiple fibers. The spectra saved in this way can be viewed using the `Plot_HDF5.py` file located in the "Additional_scripts" folder.
 Alternatively, it is also possible to save the files in FITS format.
 
 ## Get test data
-A test dataset from our Shelyak eShel II can be downloaded here **TODO**. Test data for HARPS and FEROS can be downloaded from the (ESO Raw Data Archive)[https://archive.eso.org/eso/eso_archive_main.html "ESO Raw Data Archive"]. Please make sure that, in addition to the science frames, all calibration frames are downloaded as well.__
+A test dataset from our Shelyak eShel II can be downloaded here **TODO**. Test data for HARPS and FEROS can be downloaded from the [ESO Raw Data Archive](https://archive.eso.org/eso/eso_archive_main.html "ESO Raw Data Archive"). Please make sure that, in addition to the science frames, all calibration frames are downloaded as well.__
 
 
 ## Adjust PyVesta to your instrument
