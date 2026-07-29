@@ -417,42 +417,11 @@ def CreateFlatImage(masterflat, Trace_data, median_width=100, min_SNR=10, maxdev
             ordershape_fit = _fitOrdershape2D(ordershape_matrix, weights=weights)
 
 
-            #print('')
-            """
-            fig = plt.figure(figsize=(6,6))
-            axs = fig.add_subplot(2, 1, 2, projection='3d')
-
-            Y = np.arange(ordershape_matrix.shape[0]) - ordershape_matrix.shape[0]/2.
-            X = np.arange(ordershape_matrix.shape[1])
-
-            XX, YY = np.meshgrid(X,Y)
-
-            axs.plot_surface(XX, YY, ordershape_matrix)
-            axs.plot_surface(XX, YY, ordershape_fit)
-
-            fig.tight_layout()
-
-            plt.show()
-            plt.close('all')
-            """
 
             norm_x = np.linspace(-1, 1, ordershape_matrix.shape[0])
 
             test_ordershape = ordershape_matrix[:, ordershape_matrix.shape[1]//2]
 
-            """
-            fig, axs = plt.subplots()
-
-            axs.plot(norm_x, test_ordershape, color='black')
-
-            for deg in range(10,11):
-                coeffs = np.polynomial.chebyshev.chebfit(norm_x, test_ordershape, deg=deg)
-                axs.plot(norm_x, np.polynomial.chebyshev.chebval(norm_x, coeffs), label='deg {}'.format(deg))
-
-            axs.legend()
-
-            plt.show()
-            """
 
             #interpolate sum of ordershape
             #normalize x coordinates
@@ -463,44 +432,6 @@ def CreateFlatImage(masterflat, Trace_data, median_width=100, min_SNR=10, maxdev
             #eval_sum = np.polynomial.chebyshev.chebval(cheb_x_range, coeffs)
 
             eval_sum = ndimage.median_filter(ordershape_sum, size=101, mode='nearest')
-
-            #plt.title('Sum Eval')
-            #plt.plot(cheb_x_range, ordershape_sum)
-            #plt.plot(cheb_x_range, eval_sum)
-            #plt.show()
-
-            #plt.plot(x_range, ordershape_sum)
-            #plt.plot(x_range, eval_sum, color='red')
-            #plt.show()
-
-            """
-            median_ordershapes = np.zeros(shape=(ordershape_matrix.shape[0], nsections))
-            basis_points       = np.zeros(nsections).astype(int)
-
-
-            for i in range(nsections):
-                first_ind  = int(i     * ordershape_matrix.shape[1] / nsections)
-                second_ind = int((i+1) * ordershape_matrix.shape[1] / nsections)
-
-                basis_points[i] = int(0.5 * (first_ind + second_ind))
-
-                median_ordershapes[:, i] = np.nanmedian(ordershape_matrix[:, first_ind:second_ind], axis=1)
-
-
-            ordershapes_interpolated = np.zeros_like(ordershape_matrix)
-
-            x_range_int = np.linspace(basis_points[0], basis_points[-1], num=basis_points[-1] - basis_points[0] +1, endpoint=True)
-
-            for y in range(ordershapes_interpolated.shape[0]):
-                interpolator = interpolate.PchipInterpolator(basis_points, median_ordershapes[y, :])
-                #interpolator = interpolate.interp1d(basis_points, median_ordershapes[y, :])
-
-                ordershapes_interpolated[y, basis_points[0]:basis_points[-1] +1] = interpolator(x_range_int)
-
-                #extrapolate edges from first and last basis points
-                ordershapes_interpolated[y, :basis_points[0]]  = ordershapes_interpolated[y, basis_points[0]]
-                ordershapes_interpolated[y, basis_points[-1]:] = ordershapes_interpolated[y, basis_points[-1]]
-            """
 
             #ordershapes_interpolated = ndimage.median_filter(ordershape_matrix, size=median_width, mode='nearest', axes=1)
             ordershapes_interpolated = ordershape_fit
@@ -541,20 +472,6 @@ def CreateFlatImage(masterflat, Trace_data, median_width=100, min_SNR=10, maxdev
 
                 not_nan_inds = np.array(np.asarray(~np.isnan(ordershape_eval)).nonzero())
 
-                #scale ordershape_eval and window to same median
-
-                #get rough factor betweeen ordershape and window via median.
-                #fac        = window[not_nan_inds] / ordershape_eval[not_nan_inds]
-                #median_fac = np.nanmedian(fac)
-
-                #residuals  = fac - median_fac
-                #rms        = np.sqrt(np.sum(np.square(residuals)))
-
-                #indices used to calculate factor between ordershape and window. Exclude outliners
-                #fac_inds   = np.asarray(residuals <= 3 * rms).nonzero()
-                #fac_inds   = not_nan_inds[fac_inds]
-
-                #ordershape_eval *= np.nansum(window[fac_inds]) / np.nansum(ordershape_eval[fac_inds])
                 ordershape_eval *= eval_sum[x]
 
                 good_inds = np.asarray((window[not_nan_inds]/np.clip(error_window[not_nan_inds], a_min=1e-10, a_max=np.inf) > min_SNR) & (np.abs(window[not_nan_inds] - ordershape_eval[not_nan_inds]) / np.clip(ordershape_eval[not_nan_inds], a_min=1e-10, a_max=np.inf) < maxdeviation)).nonzero()

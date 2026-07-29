@@ -669,28 +669,7 @@ def _extract_trace(args):
             tilt_weights[bad_inds, :] = 0
             tilt_weights *= np.nansum((np.sum(tilt_weights_copy, axis=1) * ordershape_eval)) / np.nansum((np.sum(tilt_weights, axis=1) * ordershape_eval))
 
-        #if x == len(x_range) //2:
-        #    plt.plot(window_rows[not_nan_inds])
-        #    plt.plot(ordershape_eval[not_nan_inds], color='red')
-        #    print('')
-        #    plt.show()
 
-
-        #while np.count_nonzero(tilt_weights > 0) > 5:
-        #    tilt_weights_temp = tilt_weights.copy()
-        #    tilt_weights_temp[tilt_weights_temp == 0] = np.inf
-
-        #    tilt_weights[np.unravel_index(np.argmin(tilt_weights_temp), tilt_weights.shape)] = 0
-
-
-        #tilt_weights /= np.sum(tilt_weights)
-
-        #window_rows[bad_inds] = ordershape_eval[bad_inds]
-
-        #print(order_nr, x,bad_inds, len(window_rows))
-
-        #if x == len(x_range) // 2:
-        #    print(bad_inds, rms)
 
         #TODO:How to deal with errors!?
 
@@ -699,16 +678,6 @@ def _extract_trace(args):
             order_spectrum[x] = np.clip(np.nansum(tilt_weights * window), a_min=1e-10, a_max=np.inf)
             order_errors[x]   = np.sqrt(np.nansum(np.square(tilt_weights * window_errors)))
 
-            #f = 1. / ordershape_eval[not_nan_inds]
-            #w = np.square(f / error_rows[not_nan_inds])
-            #a = (w / f) / np.sum(w)
-
-            #window_rows = np.clip(np.nansum(tilt_weights * window, axis=1), a_min=1e-10, a_max=np.inf)
-            #error_rows  = np.clip(np.nansum(tilt_weights * window_errors, axis=1), a_min=1e-10, a_max=np.inf)
-
-            #order_spectrum[x] = np.sum(a * f * window_rows[not_nan_inds])
-
-            #order_errors[x] = np.sqrt(np.sum(np.sqrt(a * f * error_rows[not_nan_inds])))
 
 
         except Exception as e:
@@ -716,14 +685,7 @@ def _extract_trace(args):
             order_spectrum[x] = np.nan
             order_errors[x]   = np.inf
 
-        """
-        if x >= 1500 and x <= 1600 and x%5 == 0:
-            print(x)
-            fig, axs = plt.subplots(1,2)
-            axs[0].imshow(window)
-            axs[1].imshow(final_weights)
-            plt.show()
-        """
+
 
     # filter cosmics in spectrum, additionally to filter in raw image
     if filter_cosmics:
@@ -934,15 +896,6 @@ def _extract_trace_optimal(args):
 
         ordershape_eval /= np.nansum(ordershape_eval)
 
-        #if order_nr == 7 and x > 2000 and x % 100 == 0:
-        if False:
-            plt.imshow(tilt_weights)
-            plt.title('pix {}, order {}'.format(x, order_nr))
-            print('')
-            plt.show()
-
-            plt.close()
-
         #get weights as calculated by Horne (1986) / Marsh (1989)
         ordershape_notnan = ordershape_eval.copy()
         ordershape_notnan[np.isnan(ordershape_notnan)] = 1e-10
@@ -961,54 +914,8 @@ def _extract_trace_optimal(args):
 
         tilt_weights_copy = tilt_weights.copy()
 
-        #FIXME: hier irgendwo ist das Problem!
-        #TODO: Ordershape mit 2D polynom fitten, um es zu glätten!
         tilt_weights = tilt_weights * W[:, np.newaxis]
         tilt_weights *= np.nansum((np.sum(tilt_weights_copy, axis=1) * ordershape_notnan)) / np.nansum((np.sum(tilt_weights, axis=1) * ordershape_notnan))
-
-        #if x == x_range[-1]//2 or x == x_range[-1] * 3 // 4:
-        if False:
-            #plt.title('Extraction weights')
-            #plt.imshow(tilt_weights)
-            print('')
-            #plt.show()
-
-            plt.plot(P, label='P')
-            #plt.show()
-
-            #plt.plot(V)
-            #plt.show()
-
-            #plt.title('W')
-            plt.plot(W / np.sum(W), label='W')
-            #plt.show()
-
-            #plt.title('Flux')
-            plt.plot(window_rows / np.sum(window_rows), label='Flux' )
-
-            plt.legend()
-            plt.savefig(os.path.join(datashare.reduction_parameters.plot_dir, 'Test_order{}_pix{}.png'.format(order_nr, x)))
-            #plt.show()
-
-            #plt.title('Errors')
-            #plt.plot(error_rows)
-            #plt.show()
-
-            #plt.title('flux / error^2')
-            #plt.plot(window_rows / error_rows**2)
-            #plt.show()
-
-            plt.close('all')
-
-            #print(np.sum(tilt_weights))
-
-            if np.any((W / np.sum(W)) > 0.5):
-                print(W / np.sum(W))
-                print(P)
-                print(window_rows / np.sum(window_rows))
-                print(V)
-                print(window_errors)
-                print(error_rows)
 
 
         ext_y_range = np.arange(0, max_idx_y - min_idx_y +1) - order_shift
@@ -1044,29 +951,6 @@ def _extract_trace_optimal(args):
             tilt_weights *= np.nansum((np.sum(tilt_weights_copy, axis=1) * ordershape_eval)) / np.nansum((np.sum(tilt_weights, axis=1) * ordershape_eval))
 
 
-        #if x == len(x_range) //2:
-        #    plt.plot(window_rows[not_nan_inds])
-        #    plt.plot(ordershape_eval[not_nan_inds], color='red')
-        #    print('')
-        #    plt.show()
-
-
-        #while np.count_nonzero(tilt_weights > 0) > 5:
-        #    tilt_weights_temp = tilt_weights.copy()
-        #    tilt_weights_temp[tilt_weights_temp == 0] = np.inf
-
-        #    tilt_weights[np.unravel_index(np.argmin(tilt_weights_temp), tilt_weights.shape)] = 0
-
-
-        #tilt_weights /= np.sum(tilt_weights)
-
-        #window_rows[bad_inds] = ordershape_eval[bad_inds]
-
-        #print(order_nr, x,bad_inds, len(window_rows))
-
-        #if x == len(x_range) // 2:
-        #    print(bad_inds, rms)
-
         #TODO:How to deal with errors!?
 
         #sum up values
@@ -1076,23 +960,6 @@ def _extract_trace_optimal(args):
             order_errors_rows = np.nansum(tilt_weights * window_errors, axis=1)
             order_errors[x]   = np.sqrt(np.nansum(np.square(order_errors_rows)))
 
-
-            #order_errors[x]    = np.sqrt(np.nansum(tilt_weights * np.square(window_errors)))
-            #order_errors[x]   = np.sqrt(np.nansum(np.square(tilt_weights * window_errors)))
-
-            #if np.sum(tilt_weights) < 1:
-            #    print(tilt_weights)
-
-            #f = 1. / ordershape_eval[not_nan_inds]
-            #w = np.square(f / error_rows[not_nan_inds])
-            #a = (w / f) / np.sum(w)
-
-            #window_rows = np.clip(np.nansum(tilt_weights * window, axis=1), a_min=1e-10, a_max=np.inf)
-            #error_rows  = np.clip(np.nansum(tilt_weights * window_errors, axis=1), a_min=1e-10, a_max=np.inf)
-
-            #order_spectrum[x] = np.sum(a * f * window_rows[not_nan_inds])
-
-            #order_errors[x] = np.sqrt(np.sum(np.sqrt(a * f * error_rows[not_nan_inds])))
 
 
         except Exception as e:
@@ -1597,8 +1464,6 @@ def _trace_weights_noSNR(args):
     return (all_weights, all_boundaries)
 
 
-#TODO, FIXME: Immernoch Oszillationen in den Fehlern, WARUM? Ich sehe keine Osillationen mehr im Flux
-
 #IMPORTANT: This devides the current ordershape by the master ordershape and uses the weighted average. Still unclear whether this is the best extraction method.
 #Weights should not weighted by SNR in this case!
 def weighted_extract_average(Image, Trace_obj, Weights, npools=None, filter_cosmics=False, nsigmas=3):
@@ -1859,22 +1724,7 @@ def _extract_trace_average(args):
         if len(good_inds) < len(corr_errs) // 2:
             good_inds = np.arange(len(corr_errs))
 
-        if x == len(x_range)//2:
-        #if False:
-            plt.errorbar(np.arange(len(corr_rows)), corr_rows, yerr=corr_errs, fmt='o', label='corrected measurements')
-            plt.hlines(median_row, 0, len(corr_rows), linestyle='dashed', color='red', label='weighted average')
-            print('')
-            plt.legend()
-            plt.show()
 
-            plt.plot(window_rows, label='Ordershape')
-            plt.plot(ordershape_eval * np.max(window_rows) / np.nanmax(ordershape_eval), color='red', label='Median ordershape')
-            plt.legend()
-            plt.show()
-
-            plt.close('all')
-
-            #print(good_inds)
 
 
         #build weighted average values
@@ -1886,24 +1736,12 @@ def _extract_trace_average(args):
             order_spectrum[x] = np.average(corr_rows[good_inds], weights=weights)
             order_errors[x]   = 1./np.sqrt(np.nansum(1./corr_errs_square))
 
-            #if order_errors[x] < 0.2:
-            #    print(error_rows)
-            #    print(corr_errs)
-            #    print(corr_errs_square)
-            #    print('a')
+
         except:
             order_spectrum[x] = np.nan
             order_errors[x]   = np.inf
 
 
-        """
-        if x >= 1500 and x <= 1600 and x%5 == 0:
-            print(x)
-            fig, axs = plt.subplots(1,2)
-            axs[0].imshow(window)
-            axs[1].imshow(final_weights)
-            plt.show()
-        """
 
     # filter cosmics in spectrum, additionally to filter in raw image
     if filter_cosmics:
@@ -2041,32 +1879,7 @@ def _getordershape(args):
 
     ordershapes_medianfiltered = ndimage.median_filter(ordershape_matrix, size=median_width, mode='mirror', axes=1)
 
-    """
-    good_inds = np.asarray(enough_SNR).nonzero()[0]
-    bad_inds  = np.asarray(~enough_SNR).nonzero()[0]
 
-    if len(good_inds) < x_range[-1] //4:
-        good_inds = np.arange(x_range[-1])
-        bad_inds  = []
-
-    for j in bad_inds:
-        #get closest good index
-        ind = good_inds[np.argmin(np.abs(good_inds - j))]
-
-        ordershapes_medianfiltered[:, j] = ordershapes_medianfiltered[:, ind]
-    """
-
-    """
-    ordershapes_medianfiltered = np.zeros(shape=(y_len, len(x_range)))
-
-    for x in range(ordershape_matrix.shape[1]):
-        min_ind = np.max((0, x - median_width))
-        max_ind = np.min((ordershape_matrix.shape[1], x + median_width + 1))
-
-        elements = ordershape_matrix[:, min_ind:max_ind]
-        errs     = ordershape_matrix_errs[:, min_ind:max_ind]
-        ordershapes_medianfiltered[:, x] = np.average(elements, weights=np.square(elements/errs), axis=1)
-    """
 
     #filter y values where many values are nan
     #set median value to nan in that case

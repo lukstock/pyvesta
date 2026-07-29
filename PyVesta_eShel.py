@@ -36,7 +36,7 @@ mpl.rcParams['figure.dpi'] = 300
 
 reduction_parameters = config.P14s_parameters()
 
-reduction_parameters.base_dir  = '2023-09-07_forupload'     #directory with all files
+reduction_parameters.base_dir  = ''     #directory with all files
 
 #remove / at end
 if reduction_parameters.base_dir[-1] == '/':

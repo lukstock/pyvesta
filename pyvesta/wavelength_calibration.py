@@ -129,28 +129,6 @@ def find_order_overlap(order1, order2, peaks1, peaks2, scale_range=(-1e5, 1e5), 
     order1_peakheights = order1.flux[np.around(peaks1).astype(int)]
     order2_peakheights = order2.flux[np.around(peaks2).astype(int)]
 
-    """
-    print('')
-
-    fig, axs = plt.subplots(2)
-
-    #as wavelengths are propto 1/m is wavelength(m) > wavelength(m+1)
-    axs[1].plot(order1.pixels, order1.flux, linewidth=0.75)
-    axs[1].scatter(peaks1, order1_peakheights, s=1)
-
-    axs[0].plot(order2.pixels, order2.flux, linewidth=0.75)
-    axs[0].scatter(peaks2, order2_peakheights, s=1)
-
-    max_flux = np.max((np.stack((order1.flux, order2.flux))))
-
-    axs[0].set_ylim([-2, 1.1* max_flux])
-    axs[1].set_ylim([-2, 1.1* max_flux])
-
-    fig.suptitle('Order overlaps')
-
-    fig.tight_layout()
-    plt.show()
-    """
 
 
     #create matrix from heights
@@ -1979,32 +1957,6 @@ def _fitSolution(args):
     Overlap_WaveSolution = Spectra.OverlapWavelengthSolution(m0, Overlaps, spectrum.getPixBounds())
     logging.info('Finished Overlaps for m0 {}'.format(m0))
 
-    """
-    for o in range(spectrum.nr_of_orders()):
-        plt.clf()
-        x_range = np.arange(3300)
-        y_range = Overlap_WaveSolution.eval_wavelengths(o, x_range)
-        plt.plot(x_range, y_range)
-
-
-        x_range = np.arange(3300)
-        y_range = Overlap_WaveSolution.eval_wavelengths(o+1, x_range)
-        plt.plot(x_range, y_range)
-
-        peaks = Overlap_WaveSolution.used_Overlaps.fromSameOverlap(o, o+1)
-
-        red_peaks  = np.array([ov.red_pixel  for ov in peaks])
-        blue_peaks = np.array([ov.blue_pixel for ov in peaks])
-
-        plt.scatter(red_peaks, Overlap_WaveSolution.eval_wavelengths(o, red_peaks))
-        plt.scatter(blue_peaks, Overlap_WaveSolution.eval_wavelengths(o+1, blue_peaks))
-
-        plt.xlabel('pix')
-        plt.ylabel(r'$\lambda$')
-
-        plt.show()
-    """
-
     # get global scale for that m0
     GlobalScale = getGlobalScale(reference_filename, all_peaks, Overlap_WaveSolution, npools=npools)
     logging.info('Finished global scale for m0 {} with global scale {}'.format(m0, GlobalScale))
@@ -2016,23 +1968,6 @@ def _fitSolution(args):
     Final_WaveSolution = final_wavelength_fit(reference_filename, all_peaks, Overlap_WaveSolution, 0 , fromOverlaps=True)
     logging.info('Finished m0 {}'.format(m0))
 
-    """
-    for o in range(spectrum.nr_of_orders()):
-        plt.clf()
-        x_range = np.arange(3300)
-        y_range = Final_WaveSolution.eval_wavelengths(o, x_range)
-        plt.plot(x_range, y_range)
-
-
-        x_range = np.arange(3300)
-        y_range = Final_WaveSolution.eval_wavelengths(o+1, x_range)
-        plt.plot(x_range, y_range)
-
-        plt.xlabel('pix')
-        plt.ylabel(r'$\lambda$')
-
-        plt.show()
-    """
 
     return m0, Final_WaveSolution
 
@@ -2265,36 +2200,12 @@ def OrderSolutionCCF(order, solutionlines, max_pix_shift=100, neclect_ends=500):
     correlation = np.correlate(lines_order, order.flux)
     correlation[np.isnan(correlation)] = -np.inf
 
-    """
-    print('')
-
-    fig, axs = plt.subplots(3)
-    axs[0].plot(np.arange(len(lines_order)), lines_order)
-    axs[1].plot(order.pixels, order.flux)
-    axs[2].plot(np.arange(len(correlation)), correlation / len(solutionlines))
-    plt.show()
-    """
 
     #maximum of CCF
     maximum   = np.max(correlation) / len(solutionlines)   #take more/less lines into account
 
     #maximum position of CCF is pixel shift
     pix_shift = np.argmax(correlation) - (max_pix_shift + 0.5)
-
-    """
-    fig, axs = plt.subplots(2)
-
-    max_flux = np.nanmax(order.flux)
-
-    axs[0].plot(order.pixels, order.flux, linewidth=0.2)
-    axs[0].vlines(lines_pixels, ymin=-0.1*max_flux, ymax=1.1*max_flux)
-
-    axs[0].set_ylim((-0.1*max_flux, 1.1*max_flux))
-
-    axs[1].plot(np.arange(len(correlation)) - (max_pix_shift + 0.5), correlation)
-
-    plt.show()
-    """
 
     return maximum, pix_shift
 
@@ -2480,23 +2391,6 @@ def ThArGroupMedian(WaveSolutionList, deltaT=10, method='weighted', max_coverage
         #error = np.sqrt(np.sum(np.square(Spectra.Constants.c *(residuals/master_wavelengths) - shift))/residuals.size + np.square(Solution.rms))
         error = np.sqrt((np.square(MasterSolution.rms) + np.square(Solution.rms)) /2)
 
-        """
-        for i in range(wavelengths.shape[0]):
-            if i == wavelengths.shape[0] -1:
-                plt.plot(wavelengths[i,:], Spectra.Constants.c * residuals[i,:]/master_wavelengths[i,:], color='blue', label='Measurements')
-                plt.plot(wavelengths[i,:], shift * np.ones_like(wavelengths[i,:]), color='red', label='Median shift')
-            else: #plot without label
-                plt.plot(wavelengths[i,:], Spectra.Constants.c * residuals[i,:]/master_wavelengths[i,:], color='blue')
-                plt.plot(wavelengths[i,:], shift * np.ones_like(wavelengths[i,:]), color='red')
-        plt.xlabel('Wavelength')
-        plt.ylabel('Rediduals to master in km/s')
-        plt.title('Residuals in dependency of wavelength')
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-        print(error)
-        """
-
         shifts_to_master.append(shift)
         rms_to_master.append(rms)
         error_to_shift.append(error)
@@ -2655,16 +2549,6 @@ def _order_CCF(order_peaks, reference_peaks, npix, maxshift=100):
     CCF = np.correlate(order_mask, reference_mask, mode='valid')
 
     mid_pix = len(CCF) // 2.
-
-    #plt.plot(order_mask / np.max(order_mask), linewidth=0.1)
-    #plt.vlines(reference_peaks, ymin=0, ymax=np.max(order_mask), linestyle='dashed', color='red', linewidth=0.1)
-    #plt.plot(np.arange(npix)[maxshift:-maxshift], reference_mask / np.max(reference_mask), linewidth=0.1, color='red')
-    #print('')
-    #plt.show()
-
-    #plt.plot(np.arange(len(CCF)) - mid_pix, CCF)
-    #print('')
-    #plt.show()
 
     return np.max(CCF), np.argmax(CCF) - mid_pix
 

@@ -340,22 +340,6 @@ class SolutionHandler:
         #get reference wavelength solution
         Reference_Solution = self.solutions[master_ind].copy()
 
-        """
-        solution_errors = []
-
-        for solution in self.solutions:
-            solution_errors.append(solution.rms)
-
-
-        solution_errors = np.array(solution_errors)
-
-        solution_errors = solution_errors[solution_errors <= 5 * np.nanmedian(solution_errors)]
-
-        #shift_rms       = np.sqrt(np.sum(np.square(shifts))) / len(shifts)
-        shift_rms       = (np.max(shifts) - np.min(shifts))/2.
-        total_shift_rms = np.sqrt(np.square(shift_rms * len(shifts)) + np.sum(np.square(solution_errors))) / len(solution_errors)
-        final_rms       = np.sqrt(np.square(total_shift_rms) + np.square(Reference_Solution.rms))
-        """
 
         #create interpolator
         Reference_Solution.create_shifts_interpolator(combined_mjds, combined_shifts, method=shift_method, temps=combined_temps, rms=shift_errors)
@@ -1795,14 +1779,7 @@ class SpectralOrder(GeneralOrder):
 
         new_wave = new_wave[(new_wave >= min_wav) & (new_wave <= max_wav)]  #filter for calculation errors
 
-        """
-        flux_interpolator  = interpolate.interp1d(self.wave, self.flux, bounds_error = False, **kwargs)
-        error_interpolator = interpolate.interp1d(self.wave, self.errors, bounds_error = False, **kwargs)
-        new_flux           = flux_interpolator(new_wave)
-        new_errs           = error_interpolator(new_wave)
 
-        return type(self)(new_wave, new_flux, errors=new_errs)
-        """
 
         return self.interpolate_to_new_wavs(new_wave, **kwargs)
 
@@ -3105,28 +3082,6 @@ class Trace_data:
     def save(self, filename=None):
         """
             Save the data to a hdf5 file, as dictionary.
-        """
-
-        """
-        if filename == None:
-            filename = self.filename
-        if filename == None:
-            raise ValueError('No output filename given!')
-        elif splitext(filename)[-1] == ('' or not '.h5'):
-            filename += '.h5'
-
-        if len(self.traces) == 1:
-            if self.traces[0].filename is None:
-                self.traces[0].filename = self.filename.replace('.h5', '_1.h5')
-
-            self.daughter_filenames = [self.traces[0].filename]
-
-        data = self.to_dict()
-        comp_io.save_dict_hdf5(data, filename)
-
-        for Trace in self.traces:
-            Trace.save()
-
         """
         iocomp.save_traces(filename, self)
 

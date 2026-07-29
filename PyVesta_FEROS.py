@@ -36,7 +36,7 @@ mpl.rcParams['figure.dpi'] = 300
 
 reduction_parameters = config.P14s_parameters()
 
-reduction_parameters.base_dir  = './FEROS_TestData/HIP50847/53068'     #directory with all files
+reduction_parameters.base_dir  = ''     #directory with all files
 
 #remove / at end
 if reduction_parameters.base_dir[-1] == '/':
