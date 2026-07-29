@@ -31,7 +31,7 @@ You can install all dependencies via the command
 
 
 ## Using PyVesta
-You only install the basic routines used in PyVesta via Pip. The complete pipeline is provided as a .py scripy file in this repository. The files are named `PyVesta_INSTRUMENT.py`.  
+Only the basic routines are located in the pyvesta directory. The complete pipeline is provided as a .py scripy file in this repository. The files are named `PyVesta_INSTRUMENT.py`.  
 
 Before using PyVesta, make sure you have switched to the correct conda environment.
 
