@@ -13,9 +13,10 @@ PyVesta can extract data from almost all fiber fed echelle spectrographs, as lon
 
 ## Installing PyVesta
 
-For now, the easiest way is to download PyVesta directly as source code from this website. In the future, PyVesta will also be available via pip.
+For now, the easiest way is to download PyVesta directly as source code from this website. In the future, PyVesta will also be available via pip.  
     
-It is highly recommended to install a new conda environment for PyVesta. You can find an instruction how to install conda [here](https://www.anaconda.com/docs/getting-started/installation "Anaconda installation guide")
+It is highly recommended to install a new conda environment for PyVesta. You can find an instruction how to install conda [here](https://www.anaconda.com/docs/getting-started/installation "Anaconda installation guide")  
+
 To create a new environment, use the command
     
     conda create --name <myenv>
