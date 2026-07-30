@@ -80,7 +80,7 @@ PyVesta can save the result spectra in two different ways. The default option is
 Alternatively, it is also possible to save the files in FITS format.
 
 ## Get test data
-A test dataset from our Shelyak eShel II can be downloaded here **TODO**. Test data for HARPS and FEROS can be downloaded from the [ESO Raw Data Archive](https://archive.eso.org/eso/eso_archive_main.html "ESO Raw Data Archive"). Please make sure that, in addition to the science frames, all calibration frames are downloaded as well.__
+A test dataset from our Shelyak eShel II can be downloaded here **TODO**. Test data for HARPS and FEROS can be downloaded from the [ESO Raw Data Archive](https://archive.eso.org/eso/eso_archive_main.html "ESO Raw Data Archive"). Please make sure that, in addition to the science frames, all calibration frames are downloaded as well.
 
 
 ## Adjust PyVesta to your instrument
