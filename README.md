@@ -39,7 +39,7 @@ To start PyVesta, navigate to the folder containing the `pyvesta` source folder 
 
 PyVesta, shown here as an example for our Shelyak eShel II, can be easily started by 
 
-    pyhton3 PyVesta_eShel.py
+    python3 PyVesta_eShel.py
 
 In addition to specifying them in the config.py file, the reduction parameters can also be passed via a command-line option. In this case, the values in config.py are overridden. In this example, the number of usable processor cores is set to 16:
     
