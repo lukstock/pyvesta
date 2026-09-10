@@ -876,7 +876,7 @@ def image_from_file_fits(filename, transpose=False, index = 0):
 
     if transpose:
         if image is not None:
-            image   = data.T
+            image   = image.T
         if errors is not None:
             errors = errors.T
     
