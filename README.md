@@ -39,7 +39,7 @@ To start PyVesta, navigate to the folder containing the `pyvesta` source folder 
 
 PyVesta, shown here as an example for our Shelyak eShel II, can be easily started by 
 
-    pyhton3 PyVesta_eShel.py
+    python3 PyVesta_eShel.py
 
 In addition to specifying them in the config.py file, the reduction parameters can also be passed via a command-line option. In this case, the values in config.py are overridden. In this example, the number of usable processor cores is set to 16:
     
@@ -80,7 +80,7 @@ PyVesta can save the result spectra in two different ways. The default option is
 Alternatively, it is also possible to save the files in FITS format.
 
 ## Get test data
-A test dataset from our Shelyak eShel II can be downloaded here **TODO**. Test data for HARPS and FEROS can be downloaded from the [ESO Raw Data Archive](https://archive.eso.org/eso/eso_archive_main.html "ESO Raw Data Archive"). Please make sure that, in addition to the science frames, all calibration frames are downloaded as well.
+A test dataset from our Shelyak eShel II can be downloaded [here](https://zenodo.org/records/23061568 "Shelyak eShel II Testdata"). Test data for HARPS and FEROS can be downloaded from the [ESO Raw Data Archive](https://archive.eso.org/eso/eso_archive_main.html "ESO Raw Data Archive"). Please make sure that, in addition to the science frames, all calibration frames are downloaded as well.
 
 
 ## Adjust PyVesta to your instrument
