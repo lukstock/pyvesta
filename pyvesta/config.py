@@ -70,9 +70,9 @@ class P14s_parameters(default_parameters):
         self.plot_Extraction                    = False
         self.plot_WaveGlobalScale               = True
 
-        #disable flat image and background subtraction at the moment, as these cause errors at the extraction.
-        #They lead to oscillations in the flat spectrum and the background gets overestimated at the edges of the image, disturbing the order merging
-        self.do_flatimage  = False
+        #disable  background subtraction at the moment, as it can cause errors at the extraction.
+        #background gets overestimated at the edges of the image, disturbing the order merging
+        self.do_flatimage  = True
         self.do_background = False
 
         #self.plot_WaveOverlaps                  = True

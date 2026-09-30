@@ -1,8 +1,10 @@
 import numpy as np
+from numpy.polynomial.legendre import leggauss
 import copy
 from scipy import interpolate, optimize
+from scipy.interpolate import BSpline
 from scipy.ndimage import median_filter
-from scipy.linalg import solve_banded
+from scipy.linalg import solve_banded, cho_factor, cho_solve
 from multiprocessing import Pool
 
 import os
@@ -340,6 +342,22 @@ class SolutionHandler:
         #get reference wavelength solution
         Reference_Solution = self.solutions[master_ind].copy()
 
+        """
+        solution_errors = []
+
+        for solution in self.solutions:
+            solution_errors.append(solution.rms)
+
+
+        solution_errors = np.array(solution_errors)
+
+        solution_errors = solution_errors[solution_errors <= 5 * np.nanmedian(solution_errors)]
+
+        #shift_rms       = np.sqrt(np.sum(np.square(shifts))) / len(shifts)
+        shift_rms       = (np.max(shifts) - np.min(shifts))/2.
+        total_shift_rms = np.sqrt(np.square(shift_rms * len(shifts)) + np.sum(np.square(solution_errors))) / len(solution_errors)
+        final_rms       = np.sqrt(np.square(total_shift_rms) + np.square(Reference_Solution.rms))
+        """
 
         #create interpolator
         Reference_Solution.create_shifts_interpolator(combined_mjds, combined_shifts, method=shift_method, temps=combined_temps, rms=shift_errors)
@@ -1779,7 +1797,14 @@ class SpectralOrder(GeneralOrder):
 
         new_wave = new_wave[(new_wave >= min_wav) & (new_wave <= max_wav)]  #filter for calculation errors
 
+        """
+        flux_interpolator  = interpolate.interp1d(self.wave, self.flux, bounds_error = False, **kwargs)
+        error_interpolator = interpolate.interp1d(self.wave, self.errors, bounds_error = False, **kwargs)
+        new_flux           = flux_interpolator(new_wave)
+        new_errs           = error_interpolator(new_wave)
 
+        return type(self)(new_wave, new_flux, errors=new_errs)
+        """
 
         return self.interpolate_to_new_wavs(new_wave, **kwargs)
 
@@ -3083,6 +3108,28 @@ class Trace_data:
         """
             Save the data to a hdf5 file, as dictionary.
         """
+
+        """
+        if filename == None:
+            filename = self.filename
+        if filename == None:
+            raise ValueError('No output filename given!')
+        elif splitext(filename)[-1] == ('' or not '.h5'):
+            filename += '.h5'
+
+        if len(self.traces) == 1:
+            if self.traces[0].filename is None:
+                self.traces[0].filename = self.filename.replace('.h5', '_1.h5')
+
+            self.daughter_filenames = [self.traces[0].filename]
+
+        data = self.to_dict()
+        comp_io.save_dict_hdf5(data, filename)
+
+        for Trace in self.traces:
+            Trace.save()
+
+        """
         iocomp.save_traces(filename, self)
 
 
@@ -3684,3 +3731,644 @@ class ContinuumFitter:
         fit = tmp_fit * (maxf - minf) + minf
 
         return fit, weights
+
+
+class OrdershapeInterpolator:
+    """
+    Fits the ordershape of a spectrograph. The ordershape describes the ilumination function of the spectrograph perpenticular to the dispersion.
+
+    If the dispersion is not exactly parallel to the pixel rows, there might be two order shapes: The pixel column order shape (along pixel columns, of course) and the wavelength order shape (for one wavelength, so perpendicular to disperion.) The wavelength order shape is not aligned to the pixel grid of the detector. Extracting the raw data for both cases is not part of this class.
+
+    For fiber-fed spectrographs, the order shape will look roughly like a Gaussian (or a double Gaussian in case of an image slicer). The order shape does not have to be constant over a whole order, but might slowly change along the x-axis.
+
+    Model of the order shape f(x, y):
+        x: Pixel columns (roughly wavelength), the order shape might vary slightly along this axis
+        y: Pixel rows (cross-dispersion, the order shape varies strongly along this axis)
+
+        f(x, y) = SUM_i SUM_J c[i,j] * S_i(x) * B_j(u)
+
+        with u = y - y_peak
+
+        S_i and B_j are B-Splines. y_peak is the central position of the peak at pixel x. y_peak must be known at subpixel accuracy before performing the order shape fit.
+
+    The actual measurements of the pixel are given by
+        D[x,y] = integral_{y-0.5}^{y+0.5} f(x, y') dy'
+    """
+
+    def __init__(self, x_min, x_max, u_min, u_max, n_x=10, n_y=50, deg_x=3, deg_y=3, lambda_x=0, lambda_y=1e3, lambda_boundary=1e3, boundary_width = 2, n_boundary=10, quad_order=50):
+        self.x_min = float(x_min)
+        self.x_max = float(x_max)
+
+        self.u_min = float(u_min)
+        self.u_max = float(u_max)
+
+        self.n_x   = n_x
+        self.n_y   = n_y
+
+        self.deg_x = deg_x
+        self.deg_u = deg_y
+
+        self.lambda_x = lambda_x
+        self.lambda_y = lambda_y
+        self.lambda_b = lambda_boundary
+
+        #note: n_boundary should be larger than the number of knots in the boundary region, so that there is no wild oscillation between the knots
+        self.boundary_width = boundary_width
+        self.n_boundary     = n_boundary
+
+
+        # ------–-------------–---------------------------------------------------------
+        # Create B-Spline knots
+        # ------–-------------–---------------------------------------------------------
+
+
+        self.knots_x = self._make_knots(self.x_min, self.x_max, self.n_x, self.deg_x)
+        self.knots_u = self._make_knots(self.u_min, self.u_max, self.n_y, self.deg_u)
+
+        self.n_basis_x = len(self.knots_x) - self.deg_x - 1
+        self.n_basis_u = len(self.knots_u) - self.deg_u - 1
+
+        #scale independant knot distances
+        self.h_x = (self.x_max - self.x_min) / (self.n_x - self.deg_x)
+        self.h_u = (self.u_max - self.u_min) / (self.n_y - self.deg_u)
+
+        #regularization matricies
+        D_x = self._second_derivative(self.n_basis_x) / (self.h_x**2)
+        D_u = self._second_derivative(self.n_basis_u) / (self.h_u**2)
+
+        self.R_x = np.kron(D_x, np.eye(self.n_basis_u))
+        self.R_u = np.kron(np.eye(self.n_basis_x), D_u)
+
+        #ensure that quad_order is larger than deg_u/2, else Gaussian quadrature rule will not hold
+        self.quad_order = quad_order if quad_order > self.deg_u//2 else self.deg_u // 2 + 1
+
+
+
+        # ------–-------------–---------------------------------------------------------
+        # Set up Gaussian quadrature rule
+        # ------–-------------–---------------------------------------------------------
+
+        self.gl_nodes, self.gl_weights = leggauss(self.quad_order)
+
+        self.coeff = None
+
+    # ------–-------------–---------------------------------------------------------
+    # Calculate B-Spline knots
+    # ------–-------------–---------------------------------------------------------
+
+    @staticmethod
+    def _make_knots(a, b, n_basis, deg):
+
+        n_internal = n_basis - deg - 1
+
+        if n_internal > 0:
+            #equal distance points, exclude boundaries
+            internal = np.linspace(a, b, n_internal + 2)[1:-1]
+        else:
+            internal = np.empty(0)
+
+        return np.r_[np.repeat(a, deg+1), internal, np.repeat(b, deg+1)]
+
+    # ------–-------------–---------------------------------------------------------
+    # Calculate B-Spline design matrix
+    # ------–-------------–---------------------------------------------------------
+
+    @staticmethod
+    def _basis_matrix(x, knots, deg):
+        x = np.asarray(x)
+
+        return BSpline.design_matrix(x, knots, deg).toarray()
+
+    # ------–-------------–---------------------------------------------------------
+    # Pixel integral along y axis
+    # ------–-------------–---------------------------------------------------------
+
+    def _integrated_u_basis(self, u_centers):
+        """
+        Calculates for each Pixel k:
+            A[k, j] = integral_{u_k - 0.5}^{u_k+0.5} B_j(u) du
+        """
+
+        u_centers = np.asarray(u_centers, dtype=float)
+
+        A = np.zeros((len(u_centers), self.n_basis_u))
+
+        for k, center in enumerate(u_centers):
+            a = center - 0.5
+            b = center + 0.5
+
+            # Gaussian quadrature rule
+            x = 0.5 * (b - a) * self.gl_nodes + 0.5 * (a + b)
+
+            #Evaluate function
+            B = self._basis_matrix(x, self.knots_u, self.deg_u)
+
+            #Integrate over pixels
+            A[k] = 0.5 * (b - a) * np.sum(self.gl_weights[:, None] * B, axis=0)
+
+        return A
+
+    # ------–-------------–---------------------------------------------------------
+    # Design matrix for one x pixel
+    # ------–-------------–---------------------------------------------------------
+
+    def _x_design_matrix(self, x, y_pixel, y_peak):
+        """
+        Construct design matrix for one order shape at position x
+        """
+
+        #relative y positions
+        u_centers = y_pixel - y_peak
+
+        #integrate u direction basis
+        U = self._integrated_u_basis(u_centers)
+
+        #evaluate all x-direction basis functions
+        X = self._basis_matrix(np.array([x]), self.knots_x, self.deg_x)[0]
+
+        #Tensor product:
+        # A[k,i,j] = U[k,j] * X[i]
+        #This provides the coefficients c[i,j] for pixel k
+
+        A = np.einsum("kj,i->kij", U, X)
+
+        return A.reshape(len(y_pixel), self.n_basis_x * self.n_basis_u)
+
+
+    # ------–-------------–---------------------------------------------------------
+    # Matrix for constraining f values at boundaries in u
+    # ------–-------------–---------------------------------------------------------
+
+    def _boundary_matrix_u(self, u_positions, weights=None):
+        # u basis at lower edge
+        u_positions = np.asarray(u_positions, dtype=float)
+
+        B = self._basis_matrix(u_positions, self.knots_u, self.deg_u)
+
+        if weights is None:
+            weights = np.ones(len(u_positions))
+        else:
+            weights = np.asarray(weights, dtype=float)
+
+            if len(weights) != len(u_positions):
+                raise ValueError('weights and u_positions must have the same length, but have {} and {}'.format(len(weights), len(u_positions)))
+
+        blocks = []
+
+        for b, weight in zip(B, weights):
+
+            # f(x, u) = sum_ij S_i(x) * c_ij * B_j(u)
+            # for each basis funcito constrain sum_j c_ij B_j(u) -> 0
+
+            block = np.kron(np.eye(self.n_basis_x), b[None, :])
+
+            blocks.append(np.sqrt(weight) * block)
+
+        return np.vstack(blocks)
+
+    # ------–-------------–---------------------------------------------------------
+    # helping function to calculate boundary positions
+    # ------–-------------–---------------------------------------------------------
+
+    def _boundary_positions_and_weights(self):
+        """
+        Create boundary positions and weights
+
+        Outermost points have weight 1, innermost points weights 1/n_boundary
+        """
+
+        n = self.n_boundary
+
+        if n <= 0:
+            return (np.empty(0, dtype=float), np.empty(0, dtype=float))
+
+        if n == 1:
+            lower = np.array([self.u_min])
+            upper = np.array([self.u_max])
+
+            weights_lower = np.array([1.0])
+            weights_upper = np.array([1.0])
+
+        else:
+            #lower boundary
+            lower         = np.linspace(self.u_min, self.u_min + self.boundary_width, n)
+            weights_lower = np.linspace(1.0, 1.0/n, n)
+
+
+            #upper boundary
+            upper         = np.linspace(self.u_max - self.boundary_width, self.u_max, n)
+            weights_upper = np.linspace(1.0/n, 1.0, n)
+
+        u_positions = np.concatenate([lower, upper])
+        weights     = np.concatenate([weights_lower, weights_upper])
+
+        return u_positions, weights
+
+    # ------–-------------–---------------------------------------------------------
+    # Second derivative matrix
+    # ------–-------------–---------------------------------------------------------
+
+    @staticmethod
+    def _second_derivative(n):
+        """
+        Construct second derivative matrix. This will allow to restrict the fit by penalizing the second derivative of the fit.
+        """
+
+        D = np.zeros((n-2, n))
+
+        for i in range(n-2):
+            D[i,i]    = 1.0
+            D[i, i+1] = -2.0
+            D[i, i+2] = 1.0
+
+        return D
+
+    # ------–-------------–---------------------------------------------------------
+    # Perform fit
+    # ------–-------------–---------------------------------------------------------
+
+    def fit(self, data, sigma, x_positions, y_peak, y_pixel=None):
+        """
+        Fit the 2D tensor product B-Spline model
+
+        data and sigma are transposed before fitting, so that the x axis is now the first index
+
+        :param data: ndarray, shape (Nx, Ny), measured pixel values
+        :param sigma: ndarray, shape (Nx, Ny), uncertainty for each pixel value
+        :param x_positions: ndarray, shape (Nx,), x coordinate for each order shape
+        :param y_peak: ndarray, shape (Nx, ), known center positions for each order shape
+        :param y_pixel: ndarray, shape(Ny, ), physical center coordinate for each y pixel. Default [0, 1, 2, ..., N_y -1]
+        """
+
+        data        = np.asarray(data.T, dtype=float)
+        sigma       = np.asarray(sigma.T, dtype=float)
+        x_positions = np.asarray(x_positions, dtype=float)
+        y_peak      = np.asarray(y_peak, dtype=float)
+
+
+        if data.ndim != 2:
+            raise ValueError('data must be a 2D array')
+
+        Nx, Ny = data.shape
+
+        if sigma.shape != data.shape:
+            raise ValueError('sigma and data need to have the same shape!')
+
+        if len(x_positions) != Nx:
+            raise ValueError('x_positions must have length {}, but have length {}'.format(Nx, len(x_positions)))
+
+        if len(y_peak) != Nx:
+            raise ValueError('y_peak must have length {}, but have length {}'.format(Nx, len(y_peak)))
+
+        if y_pixel is None:
+            y_pixel = np.arange(Ny, dtype=float)
+        else:
+            y_pixel = np.asarray(y_pixel, dtype=float)
+
+        if len(y_pixel) != Ny:
+            raise ValueError('y_pixel must have length {}, but have length {}'.format(Ny, len(y_pixel)))
+
+
+
+        # Construct global design matrix
+        A_list = []
+
+        for i in range(Nx):
+            A_i = self._x_design_matrix(x_positions[i], y_pixel, y_peak[i])
+
+            A_list.append(A_i)
+
+        A = np.vstack(A_list)
+
+        data_vector  = data.ravel()
+        sigma_vector = sigma.ravel()
+
+        #remove invalid pixels
+        valid = (np.isfinite(data_vector) & np.isfinite(sigma_vector) & (sigma_vector > 0))
+
+
+        A = A[valid]
+        y = data_vector[valid]
+        s = sigma_vector[valid]
+
+        # Weighted least square:
+        # Minimize
+        #      sum ((data - model) / sigma)^2
+
+        Aw = A / s[:, None]
+        yw = y / s
+
+        #Smoothness regularization, prevent fit from wild oszillations
+
+        #restrain boundaries to zero
+        R_b = None
+
+        if self.lambda_b > 0 and self.n_boundary > 0:
+            u_b, b_w = self._boundary_positions_and_weights()
+
+            R_b = self._boundary_matrix_u(u_b, b_w)
+
+        """
+        #Solve normal equation
+        #   (A^T W A + R) c = A^T W y
+
+        ATA = Aw.T @ Aw
+        ATy = Aw.T @ yw
+
+        regularization = self.lambda_y * (self.R_u.T @ self.R_u) + self.lambda_x * (self.R_x.T @ self.R_x)
+
+        matrix = ATA + regularization
+
+        print(np.where(matrix < 0))
+
+        #Cholesky factorization
+        factor = cho_factor(matrix, check_finite=False)
+
+        coeffs = cho_solve(factor, ATy, check_finite=False)
+
+        """
+
+        # Build least square system
+        # We solve
+        #
+        #   [A]        [y]
+        #   [A] c   =  [0]
+
+        blocks_A = [Aw]
+        blocks_y = [yw]
+
+        if self.lambda_y > 0:
+            blocks_A.append(np.sqrt(self.lambda_y) * self.R_u)
+            blocks_y.append(np.zeros(self.R_u.shape[0]))
+
+        if self.lambda_x > 0:
+            blocks_A.append(np.sqrt(self.lambda_x) * self.R_x)
+            blocks_y.append(np.zeros(self.R_x.shape[0]))
+
+        if self.lambda_b > 0 and R_b is not None:
+            blocks_A.append(np.sqrt(self.lambda_b) * R_b)
+            blocks_y.append(np.zeros(R_b.shape[0]))
+
+        A_aug = np.vstack(blocks_A)
+        y_aug = np.concatenate(blocks_y)
+
+        #solve via leastsq
+
+        coeffs, residuals, rank, singular_values = np.linalg.lstsq(A_aug, y_aug, rcond=None)
+
+        #Store information for later debugging
+        self.fit_rank = rank
+        self.fit_n_parameters = A.shape[1]
+        self.fit_singular_values = singular_values
+
+        if len(singular_values) > 0:
+            self.fit_condition_number = singular_values[0] / singular_values[-1] if singular_values[-1] > 0 else np.inf
+        else:
+            self.fit_condition_number = np.inf
+
+        if rank < A.shape[1]:
+            import warnings
+
+            warnings.warn("The spline design matrix is rank deficient: rank={}, parameters={}. Consider reducing the number of spline basis funcions or increasing the amount of data".format(rank, A.shape[1]), RuntimeWarning)
+
+        self.coeff = coeffs.reshape(self.n_basis_x, self.n_basis_u)
+
+
+        #Store information for later debugging
+        self.x_positions = x_positions.copy()
+        self.y_peak      = y_peak.copy()
+        self.y_pixel     = y_pixel.copy()
+
+        return self
+
+
+    # ------–-------------–---------------------------------------------------------
+    # Evaluate function f(x,u)
+    # ------–-------------–---------------------------------------------------------
+
+    def evaluate(self, x, u):
+        if self.coeff is None:
+            raise RuntimeError("model has not been fitted yet!")
+
+        x = np.atleast_1d(np.asarray(x, dtype=float))
+        u = np.atleast_1d(np.asarray(u, dtype=float))
+
+        X = self._basis_matrix(x, self.knots_x, self.deg_x)
+        U = self._basis_matrix(u, self.knots_u, self.deg_u)
+
+        #Tensor product evaluation
+        #  f(x,u) = X @ C @ U^T
+
+        return np.einsum("xi,ij,uj->xu", X, self.coeff, U)
+
+
+
+    # ------–-------------–---------------------------------------------------------
+    # Evaliate function f(x,u) in absolute y coordinates
+    # ------–-------------–---------------------------------------------------------
+
+    def evaluate_absolute(self, x, y, y_peak):
+        u = np.asarray(y - y_peak, dtype=float)
+
+        return self.evaluate(x, u)
+
+    # ------–-------------–---------------------------------------------------------
+    # Integrate arbitrary interval
+    # ------–-------------–---------------------------------------------------------
+
+    def integrate(self, x, a, b):
+        """
+        Integrate function f(x,u) from u = a to u = b
+
+        Need to transform interval to [-1,1] to use Gauss-Legendre quadrature
+        """
+
+        #Transform nodes
+        u = 0.5 * (b - a) * self.gl_nodes + 0.5 * (a + b)
+
+        val = self.evaluate(x, u)
+
+        return 0.5 * (b - a) * np.sum(self.gl_weights * val, axis=-1)
+
+    # ------–-------------–---------------------------------------------------------
+    # Calculate one modeled pixel
+    # ------–-------------–---------------------------------------------------------
+
+    def pixel_value(self, x, y_center, y_peak):
+        """
+        Calculate model value for pixel y_center at pixel column x
+        """
+
+        #a = y_center - 0.5 - y_peak
+        #b = y_center + 0.5 - y_peak
+        # -> (b-a) = 1, (a+b) = 2 * (y_center - y_peak)
+
+        #transformation from [-1,1]
+        u = 0.5 * self.gl_nodes + (y_center - y_peak)
+
+        #evaluate
+        val = self.evaluate(x, u).ravel()
+
+        #integrate
+        return 0.5 * np.sum(self.gl_weights * val)
+
+    # ------–-------------–---------------------------------------------------------
+    # Reconstruct one binned order shape
+    # ------–-------------–---------------------------------------------------------
+
+    def reconstruct_ordershape(self, x, y_peak, y_pixel):
+        """
+        Reconstruct binned order shape at pixel column x
+        """
+
+        y_pixel = np.asarray(y_pixel, dtype=float)
+
+        result = np.empty(len(y_pixel))
+
+        for k, y in enumerate(y_pixel):
+            result[k] = self.pixel_value(x, y, y_peak)
+
+        return result
+
+    # ------–-------------–---------------------------------------------------------
+    # Reconstrict complete 2D data
+    # ------–-------------–---------------------------------------------------------
+
+    def reconstruct_data(self, x_positions, y_peak, y_pixel):
+        """
+        Reconstruct order shape for all pixel columns
+        """
+
+        x_positions = np.asarray(x_positions, dtype=float)
+        y_peak      = np.asarray(y_peak, dtype=float)
+        y_pixel     = np.asarray(y_pixel, dtype=float)
+
+        result = np.empty((len(x_positions), len(y_pixel)), dtype=float)
+
+        for i in range(len(x_positions)):
+            result[i] = self.reconstruct_ordershape(x_positions[i], y_peak[i], y_pixel)
+
+        return result.T
+
+    # ------–-------------–---------------------------------------------------------
+    # Shift whole order shape in y
+    # ------–-------------–---------------------------------------------------------
+
+    def shift_ordershape(self, x, y_peak, shift, y_pixel):
+        """
+        Shift one order shape along y and re-bin it.
+
+        A positive shift moves the signal towards higher y values
+        """
+
+        y_pixel = np.asarray(y_pixel, dtype=float)
+
+        result = np.empty(len(y_pixel))
+
+        for k, y in enumerate(y_pixel):
+            # shift pixel interval back to original coordinate system
+
+            #a = (y - 0.5 - shift - y_peak)
+            #b = (y + 0.5 - shift - y_peak)
+            # -> b - a = 1, a + b = 2 * (y - shift - y_peak)
+
+            #transform from [-1,1]
+            u = 0.5 * self.gl_nodes + (y - shift - y_peak)
+
+            #evaluate function
+            val = self.evaluate(x, u).ravel()
+
+            result[k] = 0.5 * np.sum(self.gl_weights * val)
+
+        return result
+
+    # ------–-------------–---------------------------------------------------------
+    # Shift all order shapes
+    # ------–-------------–---------------------------------------------------------
+
+
+    def shift_data(self, x_positions, y_peak, shifts, y_pixel):
+        """
+        Shift all order shapes along y.
+
+        Shifts can either be a scalar or a array with one shift per x value
+        """
+
+        x_positions = np.asarray(x_positions, dtype=float)
+        y_peak      = np.asarray(y_peak, dtype=float)
+        shifts      = np.asarray(shifts, dtype=float)
+        y_pixel     = np.asarray(y_pixel, dtype=float)
+
+        if shifts.ndim == 0:
+            shifts = np.full(len(x_positions), shifts)
+
+        if len(shifts) != len(x_positions):
+            raise ValueError("Shifts needs to have the same length as x_positions, but has {} instead of {}".format(len(shifts), len(x_positions)))
+
+        result = np.empty((len(x_positions), len(y_pixel)))
+
+        for i in range(len(x_positions)):
+
+            result[i] = self.shift_ordershape(x_positions[i], y_peak[i], shifts[i], y_pixel)
+
+        return result
+
+
+    # ------–-------------–---------------------------------------------------------
+    # Chi Square
+    # ------–-------------–---------------------------------------------------------
+
+    def chi2(self, data, sigma, x_positions, y_peak, y_pixel=None):
+        """
+        Calculate unregulited chi-square of fitted model.
+        The regularization terms are intentionally not included.
+
+        data and sigma are transposed before fitting, so that the x axis is now the first index
+
+        """
+
+        data  = np.asarray(data.T, dtype=float)
+        sigma = np.asarray(sigma.T, dtype=float)
+
+        if y_pixel is None:
+            y_pixel = np.arange(data.shape[1], dtype=float)
+
+        model = self.reconstruct_data(x_positions, y_peak, y_pixel)
+
+        valid = (np.isfinite(data) & np.isfinite(sigma) & (sigma > 0))
+
+        residual = data - model
+
+        return np.sum((residual[valid] / sigma[valid]) **2)
+
+    # ------–-------------–---------------------------------------------------------
+    # Reduced Chi Square
+    # ------–-------------–---------------------------------------------------------
+
+    def reduced_chi2(self, data, sigma, x_positions, y_peak, y_pixel=None):
+        """
+        Calculate approximate reduced chi-square
+
+        Assume number of fitted coefficients as number of free parameters
+
+        data and sigma are transposed before fitting, so that the x axis is now the first index
+    .
+        """
+
+        chi2_val = self.chi2(data, sigma, x_positions, y_peak, y_pixel)
+
+        data  = np.asarray(data.T, dtype=float)
+        sigma = np.asarray(sigma.T, dtype=float)
+
+        valid = (np.isfinite(data) & np.isfinite(sigma) & (sigma > 0))
+
+        n_data = np.sum(valid)
+
+        n_parameters = self.n_basis_x * self.n_basis_u
+
+        dof = n_data - n_parameters
+
+        if dof <= 0:
+            raise ValueError("Not enough valid data points!")
+
+        return chi2_val / dof

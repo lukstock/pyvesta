@@ -311,10 +311,24 @@ def trace_orders(Image,  npools=None, startfrom=0, endat=-1, nsigmas=20., search
 
     traces = [traces[i] for i in range(len(traces)) if (np.abs((left_dists[i] - left_dists_median[i])/left_dists_median[i]) < 0.5 and np.abs((right_dists[i] - right_dists_median[i])/right_dists_median[i]) < 0.5 and traces[i]['coefs'] is not None)]
 
+
+    #filter traces which extend above/below the possible pixel range
+    temp_traces = []
+
+    for i in range(len(traces)):
+        x_test = np.linspace(-1,1,image.shape[1])
+        comp_centers = np.polynomial.chebyshev.chebval(x_test, traces[i]['coefs'])
+
+        if np.all(comp_centers > 0) and np.all(comp_centers < image.shape[0] - 1):
+            temp_traces.append(traces[i])
+
+    traces = temp_traces
+
     #left_median = np.median(left_dists)
     #right_median = np.median(right_dists)
 
     #traces = [traces[i] for i in range(len(traces)) if (np.abs((left_dists[i] - left_median)/left_median) < 0.5 and np.abs((right_dists[i] - right_median)/right_median) < 0.5 and traces[i]['coefs'] is not None)]
+
 
     Centers = [t['Centers'] for t in traces]
     coefs = [t['coefs'] for t in traces]
@@ -366,12 +380,35 @@ def trace_orders(Image,  npools=None, startfrom=0, endat=-1, nsigmas=20., search
 
         plt.close()
 
+
+
     #create Trace_data object and add traces
     Trace_obj = Spectra.Trace_data()
-    Trace_obj.add_traces(coefs, len(traces), Centers, image.shape[1]-1, fit_params=params)
+    Trace_obj.add_traces(coefs, len(traces), Centers, image.shape[1] - 1, fit_params=params)
+
+    """
+    for i, t in enumerate(Trace_obj.traces):
+        for j, tr in enumerate(t.traces):
+            fig, axs = plt.subplots(2)
+
+            all_x = np.asarray([pix.x for pix in tr.order_positions])
+            all_y = np.asarray([pix.y for pix in tr.order_positions])
+
+            normed_x = 2 * all_x / (image.shape[1] - 1) - 1
+
+            axs[0].plot(all_x, tr.center_at_pixel(all_x))
+            axs[0].scatter(all_x, all_y)
+
+            axs[1].scatter(all_x, all_y - tr.center_at_pixel(all_x))
+
+            fig.suptitle("Order {}".format(i))
+
+            plt.show(block=True)
+    """
 
     if nr_of_fibers > 1:
         Trace_obj.split_to_fibers(Image, order_multiplicity = nr_of_fibers)
+
 
     return Trace_obj
 
@@ -418,7 +455,7 @@ def findSingleOrder(Image, exp_center, nsigmas=3., search_steps=5, mid_width=5):
     exp_center = np.round(exp_center).astype(int)
 
     min_y = np.max((exp_center - order_separation // 2, 0)).astype(int)
-    max_y = np.min((exp_center + order_separation // 2, image.shape[1])).astype(int)
+    max_y = np.min((exp_center + order_separation // 2, image.shape[1] - 1)).astype(int)
 
     # Cut along middle column, median combine middle-most columns
     # to find the the maxima of the orders
@@ -483,7 +520,7 @@ def findSingleOrder(Image, exp_center, nsigmas=3., search_steps=5, mid_width=5):
             all_x = np.array([p.x for p in Centers])
             all_y = np.array([p.y for p in Centers])
 
-            normed_x = 2 * (all_x / image.shape[1]) - 1
+            normed_x = 2 * (all_x / (image.shape[1] - 1)) - 1
 
             axs[0].scatter(all_x, all_y, s=0.5, zorder=2)
 
@@ -517,7 +554,7 @@ def findSingleOrder(Image, exp_center, nsigmas=3., search_steps=5, mid_width=5):
             plt.close()
 
 
-        return Spectra.Trace(coefs, Centers, image.shape[1], fit_params=params)
+        return Spectra.Trace(coefs, Centers, image.shape[1] - 1, fit_params=params)
 
 
 
@@ -943,13 +980,24 @@ def _trace_order_image_slicer(args):
     all_x = np.array([p.x for p in Centers])
     all_y = np.array([p.y for p in Centers])
 
-    normed_x = 2 * (all_x / image.shape[1]) - 1
+    normed_x = 2 * (all_x / (image.shape[1] - 1)) - 1
 
     #fit order with polynomial
     if len(all_x1) >= 5 * ncoef:
         order_coefs = np.polynomial.chebyshev.chebfit(normed_x, all_y, deg=ncoef)
     else:
         order_coefs = None
+
+    #fix, axs = plt.subplots(2)
+
+    #axs[0].plot(all_x, np.polynomial.chebyshev.chebval(normed_x, order_coefs))
+    #axs[0].scatter(all_x, all_y)
+
+    #axs[1].scatter(all_x, all_y - np.polynomial.chebyshev.chebval(normed_x, order_coefs))
+
+    #plt.show()
+
+
 
     median_params = {}
 

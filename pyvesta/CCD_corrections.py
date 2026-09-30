@@ -10,6 +10,8 @@ from numpy.polynomial.chebyshev import chebval
 from scipy.sparse.linalg import lsqr, LinearOperator
 from scipy import interpolate, ndimage
 
+from multiprocessing import Pool
+
 
 def _fitBackground_masked(image, weights, degx, degy, batch_width=256, damp=1e-4):
     """
@@ -329,7 +331,61 @@ def InterpolateBadRows(Image):
 
     return Image
 
-def CreateFlatImage(masterflat, Trace_data, median_width=100, min_SNR=10, maxdeviation=0.2):
+
+def init_pools(reduction_parameters, instrument, camera, current_filename):
+    datashare.reduction_parameters = reduction_parameters
+    datashare.instrument           = instrument
+    datashare.camera               = camera
+    datashare.current_filename     = current_filename
+
+
+def _fitordershape(data, errors, y_shifts):
+    median_sum = ndimage.median_filter(np.sum(data, axis=0), size=101, mode='nearest')
+
+    data_flat   = data.copy()   / median_sum[np.newaxis, :]
+    errors_flat = errors.copy() / median_sum[np.newaxis, :]
+
+
+    x_range = np.arange(data.shape[1])
+
+    Ordershape_fitter = Spectra.OrdershapeInterpolator(0, data.shape[1], -(data.shape[0]//2 + 2), data.shape[0]//2 + 2, n_x = datashare.instrument.ordershape_nx, \
+        n_y=datashare.instrument.ordershape_ny, lambda_x=datashare.instrument.ordershape_lambda_x, lambda_y=datashare.instrument.ordershape_lambda_y, \
+        lambda_boundary=datashare.instrument.ordershape_lambda_b, boundary_width=datashare.instrument.ordershape_boundary_width, \
+        n_boundary=datashare.instrument.ordershape_n_boundary)
+
+    Ordershape_fitter = Ordershape_fitter.fit(data_flat, errors_flat, x_range, y_shifts)
+
+    reconstruct_data_flat = Ordershape_fitter.reconstruct_data(x_range, y_shifts, np.arange(data.shape[0]))
+    reconstruct_data      = reconstruct_data_flat * median_sum[np.newaxis, :]
+
+    reconstruct_not_nan = ~np.isnan(reconstruct_data)
+    reconstruct_data[~reconstruct_not_nan] = 1e-10
+    reconstruct_data = np.clip(reconstruct_data, a_min=1e-10, a_max=np.inf)
+
+    return reconstruct_data
+
+
+
+def _flatdata_order(args):
+    # Calculate flat data and ordershape for one order
+
+    data, errors, y_shifts, min_SNR, maxdeviation = args
+
+    reconstruct_data = _fitordershape(data, errors, y_shifts)
+
+    reconstruct_not_nan = np.logical_and(~np.isnan(reconstruct_data), reconstruct_data > 1.1e-10)
+    good_inds = np.asarray((reconstruct_not_nan) & (data/np.clip(errors, a_min=1e-10, a_max=np.inf) > min_SNR) & (np.abs(data - reconstruct_data) / reconstruct_data < maxdeviation)).nonzero()
+
+    flat_data = np.ones_like(data, dtype=float)
+    flat_data[good_inds] = data[good_inds] / reconstruct_data[good_inds]
+
+    #just make sure that we do not have any big deviations
+    flat_data[np.abs(flat_data - 1) > maxdeviation] = 1
+
+    return flat_data
+
+
+def CreateFlatImage(masterflat, Trace_data, median_width=100, min_SNR=10, maxdeviation=0.2, npools=None):
     """
     # Create a Flat Image from a masterflat frame. This flat image has values around one.
     # The pixelwise flat values will be calculated by comparing the median spacial profile of a order with the spactial profile at the actual pixel position.
@@ -343,248 +399,77 @@ def CreateFlatImage(masterflat, Trace_data, median_width=100, min_SNR=10, maxdev
     # :param median_width; int, width of median filter (default 100).
     # :param min_SNR: float, all pixels with a SNR lower than this value will have a value of one (default 10)
     # :param maxdeviation: float, between 0 and 1. All values with deviations larger than this value will also get a value of 1, as larger deviations are most likely defects and not flat correlated (default 0.2 (= 20%))
+    # :param npools: int, number of parallel threads used for multiprocessing. Will default to reduction_parameters.npools if not specified
     #
     # :return flatimage: Image object, contains the flat image
     """
 
-
     image  = masterflat.data
     errors = masterflat.errors
 
-    flat_data = np.ones_like(image).astype(float)
-
+    flat_data       = np.ones_like(image).astype(float)
+    ordershape_data = np.zeros_like(image).astype(float)
 
     #pixel range
     x_range = np.arange(image.shape[1]).astype(int)
+
+    data_list  = []
+    err_list   = []
+    index_list = []
+    shift_list = []
 
     for fiber_nr in range(Trace_data.nr_of_fibers()):
         Fiber_trace = Trace_data.traces[fiber_nr]
 
         for trace in Fiber_trace.all_traces():
-            y_len = np.round(6 * trace.sigma).astype(int)       #3 sigma in both directions
-
-            #assure y_len is odd
-            if y_len % 2 == 0:
-                y_len += 1
-
-            y_range = np.arange(y_len)
-
             trace.compute_centers(x_range)
-            Centers   = trace.Centers
+            centers     = trace.Centers
+            centers_int = np.round(centers).astype(int)
 
-            ordershape_matrix =  np.zeros(shape=(y_len, len(x_range))).astype(float)
-            ordershape_sum    =  np.ones(shape=len(x_range)).astype(float)
+            data_height = np.round(4 * trace.sigma).astype(int)     #2 sigma in both directions
 
-            weights = np.ones_like(x_range)
+            #assure data_height is odd
+            if data_height % 2 == 0:
+                data_height += 1
 
-            #iteration over all pixels
-            #first calculate shape of this order
-            for x in x_range:
-                center = Centers[x]
+            offsets = np.arange(data_height) - data_height//2
 
-                min_idx_y = np.max((0, np.round(center - 3 * trace.sigma))).astype(int)
-                max_idx_y = np.min((image.shape[0], np.round(center + 3 * trace.sigma))).astype(int)
+            #row index array, shape (data_height, len(x))
+            row_idx = centers_int[np.newaxis, :] + offsets[:, np.newaxis]
 
-                #get image window
-                window       = image[min_idx_y:max_idx_y+1, x]
-                error_window = errors[min_idx_y:max_idx_y+1, x]
+            #clip to avoid boundary errors
+            row_idx = np.clip(row_idx, a_min=0, a_max=image.shape[0]-1)
 
-                weights[x] = np.abs(np.sum(window)/np.sum(error_window))
+            #column index array, same shape as row_idx
+            col_idx = np.broadcast_to(np.arange(image.shape[1]), row_idx.shape)
 
+            #shifts
+            y_shifts = centers - row_idx[0,:]
 
-                #we want to shift individual pixels sp, that the center always is exactly the center of y_range
-                mid_y = center - min_idx_y
+            #shape (data_height, len(x))
+            order_data = image[row_idx, col_idx]
+            order_err  = errors[row_idx, col_idx]
 
-                order_shift = mid_y - y_len/2.
+            data_list.append(order_data)
+            err_list.append(order_err)
+            index_list.append((row_idx, col_idx))
+            shift_list.append(y_shifts)
 
-                ext_y_range = np.arange(0, max_idx_y - min_idx_y +1) - order_shift
+    if npools is None:
+        npools = datashare.reduction_parameters.npools
 
-                #interpolate ordershape. Do not extrapolate, but use NaNs instead
-                ordershape_spline = interpolate.CubicSpline(ext_y_range, window, extrapolate=False)
+    with Pool(processes=npools, initializer=init_pools, initargs=(datashare.reduction_parameters, datashare.instrument, datashare.camera, datashare.current_filename)) as pool:
+        args = [(data_list[i], err_list[i], shift_list[i], min_SNR, maxdeviation) for i in range(len(data_list))]
 
-                #evalate order at centered y range
-                ordershape_matrix[:, x] = ordershape_spline(y_range)
-                nansum = np.nansum(ordershape_matrix[:, x])
+        results = pool.map(_flatdata_order, args)
 
-                ordershape_sum[x] = nansum
+    for i, r in enumerate(results):
+        order_flat        = r
+        row_idx, col_idx  = index_list[i]
 
-                ordershape_matrix[:, x] /= nansum
+        flat_data[row_idx, col_idx]       = order_flat
 
-
-            ordershape_matrix[np.isnan(ordershape_matrix)] = 1e-10
-            ordershape_matrix = np.clip(ordershape_matrix, a_min=1e-10, a_max=1)
-
-            ordershape_fit = _fitOrdershape2D(ordershape_matrix, weights=weights)
-
-
-
-            norm_x = np.linspace(-1, 1, ordershape_matrix.shape[0])
-
-            test_ordershape = ordershape_matrix[:, ordershape_matrix.shape[1]//2]
-
-
-            #interpolate sum of ordershape
-            #normalize x coordinates
-
-            cheb_x_range =2 * x_range / np.max(x_range) - 1
-
-            #coeffs   = np.polynomial.chebyshev.chebfit(cheb_x_range, ordershape_sum, deg=7)
-            #eval_sum = np.polynomial.chebyshev.chebval(cheb_x_range, coeffs)
-
-            eval_sum = ndimage.median_filter(ordershape_sum, size=101, mode='nearest')
-
-            #ordershapes_interpolated = ndimage.median_filter(ordershape_matrix, size=median_width, mode='nearest', axes=1)
-            ordershapes_interpolated = ordershape_fit
-
-
-            #filter y values where many values are nan
-            #set median value to nan in that case
-            for y in range(ordershape_matrix.shape[0]):
-                nan_count = np.count_nonzero(np.isnan(ordershape_matrix[y,:]))
-
-                if nan_count > 0.25 * ordershape_matrix.shape[1]:
-                    ordershapes_interpolated[y, :] = np.nan
-
-            #ensure that mid of ordershape is always mid of array
-            while np.any(np.isnan(ordershapes_interpolated)):
-                ordershapes_interpolated = ordershapes_interpolated[1:-1, :]
-
-            #again iterate over all pixels
-            #now calculate flat data
-            for x in x_range:
-                center = Centers[x]
-
-                min_idx_y = np.max((0, np.round(center - 3 * trace.sigma))).astype(int)
-                max_idx_y = np.min((image.shape[0], np.round(center + 3 * trace.sigma))).astype(int)
-
-                #get image window
-                window       = image[min_idx_y:max_idx_y+1, x].astype(float)
-                error_window = errors[min_idx_y:max_idx_y+1, x].astype(float)
-                flat_window  = flat_data[min_idx_y:max_idx_y+1, x].astype(float)
-
-                #get shift between current pixel and median ordershape
-                order_shift = (center - min_idx_y) - (ordershapes_interpolated.shape[0] / 2.)
-
-                ordershape_spline = interpolate.CubicSpline(np.arange(ordershapes_interpolated.shape[0]), ordershapes_interpolated[:, x], extrapolate=False)
-
-                ext_y_range     = np.arange(0, max_idx_y - min_idx_y +1).astype(float) - order_shift
-                ordershape_eval = ordershape_spline(ext_y_range).astype(float)
-
-                not_nan_inds = np.array(np.asarray(~np.isnan(ordershape_eval)).nonzero())
-
-                ordershape_eval *= eval_sum[x]
-
-                good_inds = np.asarray((window[not_nan_inds]/np.clip(error_window[not_nan_inds], a_min=1e-10, a_max=np.inf) > min_SNR) & (np.abs(window[not_nan_inds] - ordershape_eval[not_nan_inds]) / np.clip(ordershape_eval[not_nan_inds], a_min=1e-10, a_max=np.inf) < maxdeviation)).nonzero()
-
-                good_inds= not_nan_inds[good_inds]
-
-
-                flat_window[good_inds] = window[good_inds] / np.clip(ordershape_eval[good_inds], a_min=1e-10, a_max=np.inf)
-
-                #just make sure that we do not have any big deviations
-                flat_window[np.abs(flat_window - 1) > maxdeviation] = 1
-
-                #transfer flat_window back to flat_data
-                flat_data[min_idx_y:max_idx_y+1, x] = flat_window
-
-
-                #plot at middle pixel, if requested
-                if datashare.reduction_parameters.plot_FlatImage and x == x_range[-1]//2:
-                    plt.plot(window, label='window')
-                    plt.plot(ordershape_eval, label='median ordershape')
-
-                    plt.legend()
-
-                    if datashare.reduction_parameters.save_plots:
-                        filename = os.path.join(datashare.reduction_parameters.plot_dir, "Flatimage.png")
-                        plt.savefig(filename, dpi=300)
-
-                    if datashare.reduction_parameters.show_plots:
-                        print('') #needed to show plot in Jupyter Notebook
-                        plt.show()
-
-                    plt.close()
-
-    flatimage = Spectra.Image(flat_data, errors=np.zeros_like(flat_data))
-
+    flatimage = Spectra.Image(flat_data, errors=np.zeros_like(flat_data, dtype=float))
 
     return flatimage
-
-
-def _2dfit(ordershape_matrix, degx, degy, weights=None):
-    x_norm = np.linspace(-1.0, 1.0, ordershape_matrix.shape[1])
-    y_norm = np.linspace(-1.0, 1.0, ordershape_matrix.shape[0])
-
-    vander_x = np.polynomial.chebyshev.chebvander(x_norm, degx)
-    vander_y = np.polynomial.chebyshev.chebvander(y_norm, degy)
-
-    ordershape_matrix_copy = ordershape_matrix.copy().T
-
-    if weights is None:
-        w_vander_x = vander_x
-        w_matrix   = ordershape_matrix_copy
-    else:
-        w = np.maximum(weights, 0)
-
-        sw = np.sqrt(w)[:, np.newaxis]
-        w_vander_x = sw * vander_x
-        w_matrix   = sw * ordershape_matrix_copy
-
-    #print(w_vander_x.shape, w_matrix.shape, vander_y.shape)
-    #print(np.linalg.pinv(w_vander_x).shape, w_matrix.shape, np.linalg.pinv(vander_y).T.shape)
-
-    #solve equation using pseudo-invariant
-    coeffs = np.linalg.pinv(w_vander_x) @ w_matrix @ np.linalg.pinv(vander_y).T
-
-    #return fitted ordershapes
-    result = vander_x @ coeffs @ vander_y.T
-
-    #norm result at each pixel
-    sums = np.sum(result, axis=1)
-    result /= sums[:, np.newaxis]
-
-    return result.T
-
-def _fitOrdershape2D(ordershape_matrix, weights=None, nsigma_clip=3.0, niter_max=10):
-    """
-    # Fit Ordershape in 2D in dispersion and cross-dispersion direction to avoid bad ordershapes at low SNR regions
-    #
-    #
-    """
-
-    if weights is None:
-        w_start = np.ones(ordershape_matrix.shape[1])
-    else:
-        w_start = np.array(weights).astype(float).copy()
-
-    w = w_start.copy()
-
-    for it in range(1, niter_max+1):
-        fit = _2dfit(ordershape_matrix, datashare.instrument.ordershape_dispdeg,  datashare.instrument.ordershape_crossdispdeg, weights=weights)
-
-        residuals = ordershape_matrix - fit
-        res_rms   = np.sqrt(np.mean(np.square(residuals), axis=0))
-
-        used_inds   = np.asarray(w > 0).nonzero()[0]
-        med_rms     = np.median(res_rms[used_inds])
-        med_rms_sig = np.median(np.abs(res_rms[used_inds] - med_rms))
-        sigma       = 1.4826 * med_rms_sig if med_rms_sig > 0 else res_rms[used_inds].std()
-
-        is_outliner = np.asarray(res_rms > med_rms + nsigma_clip * sigma).nonzero()[0]
-
-        #new weights
-        w_new = w_start.copy()
-        w_new[is_outliner] = 0
-
-        if np.array_equal(w, w_new):
-            break
-
-        w = w_new
-
-    #clip negative values
-    fit = np.maximum(fit, 1e-10)
-
-    return fit
-
-
 

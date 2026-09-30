@@ -55,7 +55,7 @@ class Instrument:
         self.m0_default     = 0                     #Default m0 value (physical diffraction order number corresponding to first extracted order)
         self.m0_searchrange = 3                     #Search real m0 around m0_default in range (m0_default - m0_searchrange, m0_default + m0_searchrange +1)
 
-        self.MaxWavesolution_RMS = 0.2              #Maximal acceptable RMS of final wavelength solution in angstrom
+        self.MaxWavesolution_RMS = 0.2              #Maximal acceptable RMS of final wavelength solution in km/s
         self.wav_tol             = 0.5              #wavelength tolerance in angstrom. Map detected peak and reference peak if difference is smaller than wav_tol
 
         self.reference_filename = '../reference/ThAr-Audela.txt'        #Relative (to this file) filename of the reference list with all reference lines (without pixel/order information). This file is mandatory
@@ -64,7 +64,16 @@ class Instrument:
         self.max_pixshift = 100                     #Maximal pixel shift to reference, only used if peaklinelist is given
         self.reference_list_testorder = 0           #Physical diffraction order number which is used to determine m0 from the peaklist, only if peaklinelist is given
 
+        #----------------------------------------------------------------------------------------------------------------------------------------------------------------
+        #ordershape fitting parameters
 
+        self.ordershape_nx             = 10         #Number of spline knots in x (dispersion) direction. Should be relatively small
+        self.ordershape_ny             = 30         #Number of spline knots in y (cross-dispersion) direction. Should be relatively high to model illumination function well
+        self.ordershape_lambda_x       = 0          #Penalty factor of second derivative in x (dispersion) direction. The higher this value the flatter the function will become in x direction
+        self.ordershape_lambda_y       = 1e5        #Penalty factor of second derivative in y (cross-dispersion) direction. The higher this value the flatter the function will become in y direction
+        self.ordershape_lambda_b       = 1e5        #Penalty factor of boundary values. Boundary values are defined by ordershape_boundary_width and ordershape_n_boundary. Increasing this value forces the edges ofthe illumination function to decrease to zero
+        self.ordershape_boundary_width = 1          #Width of boundary region in pixels
+        self.ordershape_n_boundary     = 10         #Number of evaluation points in boundary region
 
         #----------------------------------------------------------------------------------------------------------------------------------------------------------------
         #general extraction parameters
@@ -85,9 +94,6 @@ class Instrument:
 
         self.tiltfit_orderdeg = -1                  #polynomial degree for tilt interpolation between orders. If < 0, each order will be fitted individually instead of an 2D fit over all orders
         self.tiltfit_pixeldeg = 1                   #polynomial degree for tilt interpolation within one order (along pixels)
-
-        self.ordershape_dispdeg      = 3            #polynomial chebyshev degree for ordershape fit of chebyshev parameters in dispersion direction. Keep this small, as the parameters should vary slowly
-        self.ordershape_crossdispdeg = 10           #polynomial chebyshev degree for ordershape fit in cross-dispersion direction. Here higher degrees can be used to ensure a nice fit.
 
         #------–----------------------------------------------------------------------------------------------------------------------------------------------------------
         #continuum fitter parameters
@@ -210,9 +216,19 @@ class FEROS(Instrument):
         self.m0_searchrange = 3
 
 
-        self.ordershape_crossdispdeg = 20
+        #----------------------------------------------------------------------------------------------------------------------------------------------------------------
+        #ordershape fitting parameters
 
-        self.MaxWavesolution_RMS = 0.02     #maximum RMS of wavelength solution in angstrom
+        self.ordershape_nx             = 10         #Number of spline knots in x (dispersion) direction. Should be relatively small
+        self.ordershape_ny             = 50         #Number of spline knots in y (cross-dispersion) direction. Should be relatively high to model illumination function well
+        self.ordershape_lambda_x       = 0          #Penalty factor of second derivative in x (dispersion) direction. The higher this value the flatter the function will become in x direction
+        self.ordershape_lambda_y       = 1e3        #Penalty factor of second derivative in y (cross-dispersion) direction. The higher this value the flatter the function will become in y direction
+        self.ordershape_lambda_b       = 1e3        #Penalty factor of boundary values. Boundary values are defined by ordershape_boundary_width and ordershape_n_boundary. Increasing this value forces the edges ofthe illumination function to decrease to zero
+        self.ordershape_boundary_width = 2          #Width of boundary region in pixels
+        self.ordershape_n_boundary     = 10         #Number of evaluation points in boundary region
+
+
+        self.MaxWavesolution_RMS = 0.2     #maximum RMS of wavelength solution in km/s
         self.wav_tol             = 0.5     #wavelength tolerance in angstrom. Map detected peak and reference peak if difference is smaller than wav_tol
 
         self.reference_filename = './reference/FEROS_ThAr_List.txt'
@@ -357,6 +373,17 @@ class HARPS_blue(Instrument):
 
         self.use_linetilt     = False
 
+        #----------------------------------------------------------------------------------------------------------------------------------------------------------------
+        #ordershape fitting parameters
+
+        self.ordershape_nx             = 10         #Number of spline knots in x (dispersion) direction. Should be relatively small
+        self.ordershape_ny             = 30         #Number of spline knots in y (cross-dispersion) direction. Should be relatively high to model illumination function well
+        self.ordershape_lambda_x       = 0          #Penalty factor of second derivative in x (dispersion) direction. The higher this value the flatter the function will become in x direction
+        self.ordershape_lambda_y       = 1e5        #Penalty factor of second derivative in y (cross-dispersion) direction. The higher this value the flatter the function will become in y direction
+        self.ordershape_lambda_b       = 1e5        #Penalty factor of boundary values. Boundary values are defined by ordershape_boundary_width and ordershape_n_boundary. Increasing this value forces the edges ofthe illumination function to decrease to zero
+        self.ordershape_boundary_width = 1          #Width of boundary region in pixels
+        self.ordershape_n_boundary     = 10         #Number of evaluation points in boundary region
+
 
         self.nord_overlaps      = 3
         self.npix_overlaps      = 3
@@ -375,7 +402,7 @@ class HARPS_blue(Instrument):
         self.m0_default     = 116
         self.m0_searchrange = 3
 
-        self.MaxWavesolution_RMS = 0.01     #maximum RMS of wavelength solution in angstrom
+        self.MaxWavesolution_RMS = 0.1     #maximum RMS of wavelength solution in km/s
         self.wav_tol             = 0.1     #wavelength tolerance in angstrom. Map detected peak and reference peak if difference is smaller than wav_tol
 
         self.reference_filename = './reference/HARPS_reference_B.txt'
@@ -518,6 +545,17 @@ class HARPS_red(Instrument):
 
         self.use_linetilt     = False
 
+        #----------------------------------------------------------------------------------------------------------------------------------------------------------------
+        #ordershape fitting parameters
+
+        self.ordershape_nx             = 10         #Number of spline knots in x (dispersion) direction. Should be relatively small
+        self.ordershape_ny             = 30         #Number of spline knots in y (cross-dispersion) direction. Should be relatively high to model illumination function well
+        self.ordershape_lambda_x       = 0          #Penalty factor of second derivative in x (dispersion) direction. The higher this value the flatter the function will become in x direction
+        self.ordershape_lambda_y       = 1e5        #Penalty factor of second derivative in y (cross-dispersion) direction. The higher this value the flatter the function will become in y direction
+        self.ordershape_lambda_b       = 1e5        #Penalty factor of boundary values. Boundary values are defined by ordershape_boundary_width and ordershape_n_boundary. Increasing this value forces the edges ofthe illumination function to decrease to zero
+        self.ordershape_boundary_width = 1          #Width of boundary region in pixels
+        self.ordershape_n_boundary     = 10         #Number of evaluation points in boundary region
+
 
         self.nord_overlaps      = 3
         self.npix_overlaps      = 3
@@ -539,7 +577,7 @@ class HARPS_red(Instrument):
         self.m0_default     = 89
         self.m0_searchrange = 1
 
-        self.MaxWavesolution_RMS = 0.01     #maximum RMS of wavelength solution in angstrom
+        self.MaxWavesolution_RMS = 0.1     #maximum RMS of wavelength solution in km/s
         self.wav_tol             = 0.1     #wavelength tolerance in angstrom. Map detected peak and reference peak if difference is smaller than wav_tol
 
         self.reference_filename = './reference/HARPS_reference_R.txt'
@@ -677,6 +715,17 @@ class eShel(Instrument):
         self.image_slicer     = False
         self.nr_of_fibers     = 1
 
+        #----------------------------------------------------------------------------------------------------------------------------------------------------------------
+        #ordershape fitting parameters
+
+        self.ordershape_nx             = 10         #Number of spline knots in x (dispersion) direction. Should be relatively small
+        self.ordershape_ny             = 30         #Number of spline knots in y (cross-dispersion) direction. Should be relatively high to model illumination function well
+        self.ordershape_lambda_x       = 0          #Penalty factor of second derivative in x (dispersion) direction. The higher this value the flatter the function will become in x direction
+        self.ordershape_lambda_y       = 1e5        #Penalty factor of second derivative in y (cross-dispersion) direction. The higher this value the flatter the function will become in y direction
+        self.ordershape_lambda_b       = 1e5        #Penalty factor of boundary values. Boundary values are defined by ordershape_boundary_width and ordershape_n_boundary. Increasing this value forces the edges ofthe illumination function to decrease to zero
+        self.ordershape_boundary_width = 1          #Width of boundary region in pixels
+        self.ordershape_n_boundary     = 10         #Number of evaluation points in boundary region
+
         self.nord_overlaps      = 3
         self.npix_overlaps      = 3
         self.nord_init_final    = 2
@@ -694,7 +743,7 @@ class eShel(Instrument):
         self.m0_default     = 27        #was 27
         self.m0_searchrange = 3         #was 3
 
-        self.MaxWavesolution_RMS = 0.2
+        self.MaxWavesolution_RMS = 5       #maximum RMS of wavelength solution in km/s
         self.wav_tol             = 0.5     #wavelength tolerance in angstrom. Map detected peak and reference peak if difference is smaller than wav_tol
 
         self.reference_filename = './reference/ThAr-Audela.txt'
